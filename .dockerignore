@@ -1,0 +1,9 @@
+venv
+env
+__pycache__/
+*.pyc
+.example.env.dev
+.example.env.production
+.example.env.staging
+sip/settings/dev.py
+sip/settings/production.py

@@ -1,0 +1,31 @@
+version: "3"
+services:
+  db:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ~/postgres_data:/var/lib/postgresql/data
+  web:
+    build: ${DOCKER_APP_NAME}
+    command: >
+        bash -c "python3 manage.py makemigrations --settings=sip.settings.staging 
+        && python3 manage.py migrate --settings=sip.settings.staging 
+        && python3 manage.py runserver 0.0.0.0:9000 --settings=sip.settings.staging"
+    volumes:
+      - .:/app
+      - ./sip/settings/static:/app/static
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+    ports:
+      - "8001:9000"
+    depends_on:
+      - db

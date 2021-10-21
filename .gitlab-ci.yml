@@ -1,0 +1,101 @@
+stages:
+    - test
+    - flake8
+    - build
+    - sonarqube
+    - deploy
+    
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+image: python:latest
+
+cache:
+  key: test
+  paths:
+    - .cache/pip
+    - venv/
+
+before_script:
+  - python3 -V
+  - pip3 install virtualenv
+  - virtualenv venv
+  - source venv/bin/activate
+  - pip3 install -r requirements.txt
+  - echo "DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY" > sip/settings/.env
+  - echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >> sip/settings/.env
+  - echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >> sip/settings/.env
+  - echo "AWS_STORAGE_BUCKET_NAME=$AWS_STORAGE_BUCKET_NAME" >> sip/settings/.env
+
+dev-test:
+  stage: test
+  script:
+    - python3 manage.py collectstatic --settings=sip.settings.staging --no-input
+    - python3 manage.py makemigrations --settings=sip.settings.dev
+    - python3 manage.py migrate --settings=sip.settings.dev
+    - python3 manage.py test --settings=sip.settings.dev
+  only:
+    - development
+    - /^.*PBI-.*$/
+
+staging-test:
+  stage: test
+  script:
+    - python3 manage.py collectstatic --settings=sip.settings.staging --no-input
+    - python3 manage.py makemigrations --settings=sip.settings.staging
+    - python3 manage.py migrate --settings=sip.settings.staging
+    - python3 manage.py test --settings=sip.settings.staging
+  only:
+    - staging
+
+lint:
+  stage: flake8
+  script:
+    - flake8
+  allow_failure: true
+  except:
+    - CI-CD
+
+sonarqube:
+  image: nuga99/sonar-scanner-python
+  stage: sonarqube
+  cache:
+    key: sonarqube
+    paths:
+      - .cache/pip
+  before_script:
+    - python3 -V
+    - pip3 install -r requirements.txt
+    - echo "DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY" > sip/settings/.env
+    - echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >> sip/settings/.env
+    - echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >> sip/settings/.env
+    - echo "AWS_STORAGE_BUCKET_NAME=$AWS_STORAGE_BUCKET_NAME" >> sip/settings/.env
+  script:
+    - if [[ $CI_COMMIT_REF_NAME == staging ]]; then ENVIRON="sip.settings.staging"; else ENVIRON="sip.settings.dev"; fi
+    - coverage run --omit='manage.py,**/venv/*,**/python3*/**,core/**,laporan_praktikum/error_message/**,laporan_praktikum/custom_module/**,authentication/cas_wrapper.py,/usr/**' manage.py test --settings=${ENVIRON}
+    - coverage report -m
+    - coverage xml -i
+    - sonar-scanner
+      -Dsonar.host.url=https://pmpl.cs.ui.ac.id/sonarqube
+      -Dsonar.projectKey=$SONARQUBE_PROJECT_KEY
+      -Dsonar.login=$SONARQUBE_TOKEN
+      -Dsonar.branch.name=$CI_COMMIT_REF_NAME
+  only:
+    - master
+    - staging
+    - development
+    - /^.*PBI-.*$/
+
+heroku-deploy:
+  image: ruby:2.4
+  stage: deploy
+  cache: {}
+  before_script:
+    - gem install dpl
+    - wget -qO- https://cli-assets.heroku.com/install-ubuntu.sh | sh
+  script:
+    - dpl --provider=heroku --app=$HEROKU_APPNAME --api-key=$HEROKU_APIKEY
+    - export HEROKU_API_KEY=$HEROKU_APIKEY
+  only:
+    - staging
+    - /^.*URGENT-.*$/
